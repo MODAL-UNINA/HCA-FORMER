@@ -40,7 +40,7 @@ try:
     df = pd.read_csv(data_path / "ashrae_db2.01.csv")
 except UnicodeDecodeError:
     df = pd.read_csv(data_path / "ashrae_db2.01.csv", encoding="ISO-8859-1")
-except Exception as e:
+except Exception:
     traceback.print_exc()
     raise ImportError("Loading failed")
 
