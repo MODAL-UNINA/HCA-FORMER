@@ -15,31 +15,63 @@ from pathlib import Path
 from imblearn.over_sampling import SMOTE
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import train_test_split, StratifiedKFold
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support, cohen_kappa_score, matthews_corrcoef
+from sklearn.metrics import (
+    accuracy_score,
+    precision_recall_fscore_support,
+    cohen_kappa_score,
+    matthews_corrcoef,
+)
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 
-parser = argparse.ArgumentParser(description="Hierarchical Transformer with Multi-Head Self-Attention for Sensor Data")
-parser.add_argument("--preprocessing_path", type=str, default="./preprocessed_data", help="Path to the dataset CSV file")
+parser = argparse.ArgumentParser(
+    description="Hierarchical Transformer with Multi-Head Self-Attention for Sensor Data"
+)
+parser.add_argument(
+    "--preprocessing_path",
+    type=str,
+    default="./preprocessed_data",
+    help="Path to the dataset CSV file",
+)
 parser.add_argument("--epochs", type=int, default=100, help="Number of training epochs")
-parser.add_argument("--n_folds", type=int, default=10, help="Number of folds for K-Fold Cross-Validation")
-parser.add_argument("--num_heads", type=int, default=8, help="Number of attention heads")
+parser.add_argument(
+    "--n_folds",
+    type=int,
+    default=10,
+    help="Number of folds for K-Fold Cross-Validation",
+)
+parser.add_argument(
+    "--num_heads", type=int, default=8, help="Number of attention heads"
+)
 parser.add_argument("--depth", type=int, default=6, help="Number of transformer blocks")
 parser.add_argument("--embed_dim", type=int, default=128, help="Embedding dimension")
 parser.add_argument("--dropout", type=float, default=0.1, help="Dropout rate")
-parser.add_argument("--batch_size", type=int, default=256, help="Batch size for training")
-parser.add_argument("--learning_rate", type=float, default=1e-4, help="Learning rate for the optimizer")
-parser.add_argument("--weight_decay", type=float, default=1e-5, help="Weight decay for the optimizer")
+parser.add_argument(
+    "--batch_size", type=int, default=256, help="Batch size for training"
+)
+parser.add_argument(
+    "--learning_rate", type=float, default=1e-4, help="Learning rate for the optimizer"
+)
+parser.add_argument(
+    "--weight_decay", type=float, default=1e-5, help="Weight decay for the optimizer"
+)
+parser.add_argument("--patience", type=int, default=5, help="Early stopping patience")
 args, _ = parser.parse_known_args()
 
 data_path = Path(args.preprocessing_path).resolve()
 df = pd.read_csv(data_path / "ASHRAE_processed.csv")
 
 # ✅ Load dataset (assuming df is already loaded)
-hier_cols = ["Building type", "City", "Season", "Koppen climate classification", "Country"]
+hier_cols = [
+    "Building type",
+    "City",
+    "Season",
+    "Koppen climate classification",
+    "Country",
+]
 target_col = "Thermal sensation"
 
 # Identify sensor feature columns
@@ -64,12 +96,22 @@ X_sensors = scaler.fit_transform(X_sensors)
 # ✅ Apply SMOTE for class balancing
 smote = SMOTE(sampling_strategy="auto", random_state=42)
 X_sensors_resampled, y_resampled = smote.fit_resample(X_sensors, y)
-X_hier_resampled = X_hier[np.random.choice(X_hier.shape[0], X_sensors_resampled.shape[0])]
+X_hier_resampled = X_hier[
+    np.random.choice(X_hier.shape[0], X_sensors_resampled.shape[0])
+]
 
 # ✅ Split into training and test sets
-X_sensors_train, X_sensors_test, X_hier_train, X_hier_test, y_train, y_test = train_test_split(
-    X_sensors_resampled, X_hier_resampled, y_resampled, test_size=0.2, random_state=42, stratify=y_resampled
+X_sensors_train, X_sensors_test, X_hier_train, X_hier_test, y_train, y_test = (
+    train_test_split(
+        X_sensors_resampled,
+        X_hier_resampled,
+        y_resampled,
+        test_size=0.2,
+        random_state=42,
+        stratify=y_resampled,
+    )
 )
+
 
 # ✅ Dataset Class
 class SensorDataset(Dataset):
@@ -84,12 +126,14 @@ class SensorDataset(Dataset):
     def __getitem__(self, idx):
         return self.X_sensors[idx], self.X_hier[idx], self.y[idx]
 
+
 # ✅ Create DataLoaders
 train_dataset = SensorDataset(X_sensors_train, X_hier_train, y_train)
 test_dataset = SensorDataset(X_sensors_test, X_hier_test, y_test)
 
 train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+
 
 class SensorDataset(Dataset):
     def __init__(self, X_sensors, X_hier, y):
@@ -103,6 +147,7 @@ class SensorDataset(Dataset):
     def __getitem__(self, idx):
         return self.X_sensors[idx], self.X_hier[idx], self.y[idx]
 
+
 # ✅ Positional Encoding
 class PositionalEncoding(nn.Module):
     def __init__(self, embed_dim, max_len=5000):
@@ -110,7 +155,9 @@ class PositionalEncoding(nn.Module):
         self.embed_dim = embed_dim  # Save embed_dim
         pe = torch.zeros(max_len, embed_dim)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, embed_dim, 2).float() * (-np.log(10000.0) / embed_dim))
+        div_term = torch.exp(
+            torch.arange(0, embed_dim, 2).float() * (-np.log(10000.0) / embed_dim)
+        )
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         self.pe = pe.unsqueeze(0)  # Shape: (1, max_len, embed_dim)
@@ -123,7 +170,9 @@ class PositionalEncoding(nn.Module):
             x = x.unsqueeze(1)  # Convert (B, embed_dim) -> (B, 1, embed_dim)
 
         seq_len = x.shape[1]
-        return x + self.pe[:, :seq_len, :].to(x.device)  # Ensure correct shape & device alignment
+        return x + self.pe[:, :seq_len, :].to(
+            x.device
+        )  # Ensure correct shape & device alignment
 
 
 # ✅ Feature Tokenization
@@ -135,10 +184,13 @@ class FeatureTokenizer(nn.Module):
     def forward(self, x):
         return self.token_proj(x)
 
+
 class MultiHeadSelfAttention(nn.Module):
     def __init__(self, embed_dim, num_heads=8, dropout=0.1):
         super().__init__()
-        self.attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
+        self.attn = nn.MultiheadAttention(
+            embed_dim, num_heads, dropout=dropout, batch_first=True
+        )
         self.norm = nn.LayerNorm(embed_dim)
         self.dropout = nn.Dropout(dropout)
 
@@ -152,7 +204,9 @@ class MultiHeadSelfAttention(nn.Module):
 class Attention_Hierarchical(nn.Module):
     def __init__(self, dim, num_heads=8, dropout=0.1):
         super().__init__()
-        self.mhsa = MultiHeadSelfAttention(dim, num_heads, dropout)  # Add MHSA before hierarchical attention
+        self.mhsa = MultiHeadSelfAttention(
+            dim, num_heads, dropout
+        )  # Add MHSA before hierarchical attention
 
         self.qkv_building = nn.Linear(dim, dim * 3)
         self.qkv_city = nn.Linear(dim, dim * 3)
@@ -201,6 +255,7 @@ class Attention_Hierarchical(nn.Module):
         x = torch.cat([x_building, x_city, x_season, x_climate, x_country], dim=1)
         return self.dropout(x)
 
+
 class TransformerBlock(nn.Module):
     def __init__(self, embed_dim, num_heads, mlp_ratio=4.0, dropout=0.1):
         super().__init__()
@@ -213,7 +268,7 @@ class TransformerBlock(nn.Module):
             nn.Linear(embed_dim, int(embed_dim * mlp_ratio)),
             nn.GELU(),
             nn.Linear(int(embed_dim * mlp_ratio), embed_dim),
-            nn.Dropout(dropout)
+            nn.Dropout(dropout),
         )
 
     def forward(self, x):
@@ -224,12 +279,10 @@ class TransformerBlock(nn.Module):
 
         x = self.mhsa(x)  # Apply Multi-Head Self-Attention
 
-
         if x.shape[1] > 5:
             x = x[:, 1:, :]
 
         x = self.hta(self.norm1(x))  # Hierarchical Attention
-
 
         if original_x.shape[1] > x.shape[1]:
             cls_token = original_x[:, 0, :].unsqueeze(1)
@@ -241,15 +294,25 @@ class TransformerBlock(nn.Module):
 
 # ✅ Hierarchical Transformer Model
 class HierarchicalTransformerWithMHSA(nn.Module):
-    def __init__(self, num_sensors, num_classes, num_heads=8, depth=6, embed_dim=128, dropout=0.1):
+    def __init__(
+        self, num_sensors, num_classes, num_heads=8, depth=6, embed_dim=128, dropout=0.1
+    ):
         super().__init__()
         self.feature_tokenizer = nn.Linear(num_sensors, embed_dim)
 
-        self.hier_embeddings = nn.ModuleList([
-            nn.Embedding(len(np.unique(X_hier[:, i])), embed_dim) for i in range(X_hier.shape[1])
-        ])
+        self.hier_embeddings = nn.ModuleList(
+            [
+                nn.Embedding(len(np.unique(X_hier[:, i])), embed_dim)
+                for i in range(X_hier.shape[1])
+            ]
+        )
 
-        self.blocks = nn.ModuleList([TransformerBlock(embed_dim, num_heads, dropout=dropout) for _ in range(depth)])
+        self.blocks = nn.ModuleList(
+            [
+                TransformerBlock(embed_dim, num_heads, dropout=dropout)
+                for _ in range(depth)
+            ]
+        )
 
         self.norm = nn.LayerNorm(embed_dim)
         self.head = nn.Linear(embed_dim, num_classes)
@@ -258,7 +321,9 @@ class HierarchicalTransformerWithMHSA(nn.Module):
         x = self.feature_tokenizer(x_sensors)
 
         for i in range(x_hier.shape[1]):
-            x_hier[:, i] = torch.clamp(x_hier[:, i], min=0, max=self.hier_embeddings[i].num_embeddings - 1)
+            x_hier[:, i] = torch.clamp(
+                x_hier[:, i], min=0, max=self.hier_embeddings[i].num_embeddings - 1
+            )
 
         hier_embeds = [emb(x_hier[:, i]) for i, emb in enumerate(self.hier_embeddings)]
         hier_embeds = torch.stack(hier_embeds, dim=1)
@@ -270,6 +335,7 @@ class HierarchicalTransformerWithMHSA(nn.Module):
 
         x = self.norm(x.mean(dim=1))
         return self.head(x)
+
 
 # Define K for K-Fold Cross-Validation
 K = args.n_folds
@@ -293,10 +359,13 @@ y_tensor = torch.tensor(y, dtype=torch.long)
 
 # K-Fold Training Loop
 for fold, (train_idx, val_idx) in enumerate(kf.split(X_sensors, y)):
-    print(f"\n=== Fold {fold+1}/{K} ===")
+    print(f"\n=== Fold {fold + 1}/{K} ===")
 
     # Create Train and Validation Sets
-    X_sensors_train, X_sensors_val = X_sensors_tensor[train_idx], X_sensors_tensor[val_idx]
+    X_sensors_train, X_sensors_val = (
+        X_sensors_tensor[train_idx],
+        X_sensors_tensor[val_idx],
+    )
     X_hier_train, X_hier_val = X_hier_tensor[train_idx], X_hier_tensor[val_idx]
     y_train, y_val = y_tensor[train_idx], y_tensor[val_idx]
 
@@ -314,17 +383,19 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(X_sensors, y)):
         num_heads=args.num_heads,
         depth=args.depth,
         embed_dim=args.embed_dim,
-        dropout=args.dropout
+        dropout=args.dropout,
     ).to(device)
 
     # Define Loss and Optimizer
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    optimizer = optim.Adam(
+        model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
+    )
 
     # Train the model
     num_epochs = args.epochs  # Set number of training epochs per fold
     best_val_loss = float("inf")
-    patience = 5  # Early stopping patience
+    patience = args.patience  # Early stopping patience
     epochs_no_improve = 0
 
     for epoch in range(num_epochs):
@@ -332,7 +403,11 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(X_sensors, y)):
         model.train()
 
         for sensors, hier, labels in train_loader:
-            sensors, hier, labels = sensors.to(device), hier.to(device), labels.to(device)
+            sensors, hier, labels = (
+                sensors.to(device),
+                hier.to(device),
+                labels.to(device),
+            )
 
             optimizer.zero_grad()
             outputs = model(sensors, hier)
@@ -347,13 +422,16 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(X_sensors, y)):
         train_acc = correct / total
         train_loss = total_loss / len(train_loader)
 
-
         # Validate Model
         model.eval()
         val_correct, val_total, val_loss = 0, 0, 0
         with torch.no_grad():
             for sensors, hier, labels in val_loader:
-                sensors, hier, labels = sensors.to(device), hier.to(device), labels.to(device)
+                sensors, hier, labels = (
+                    sensors.to(device),
+                    hier.to(device),
+                    labels.to(device),
+                )
                 outputs = model(sensors, hier)
                 loss = criterion(outputs, labels)
                 val_loss += loss.item()
@@ -363,7 +441,9 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(X_sensors, y)):
         val_acc = val_correct / val_total
         val_loss = val_loss / len(val_loader)
 
-        print(f"Epoch {epoch+1}/{num_epochs} | Train Acc: {train_acc:.4f} | Train Loss: {train_loss:.4f} | Validation Loss: {val_loss:.4f} | Validation Acc: {val_acc:.4f}")
+        print(
+            f"Epoch {epoch + 1}/{num_epochs} | Train Acc: {train_acc:.4f} | Train Loss: {train_loss:.4f} | Validation Loss: {val_loss:.4f} | Validation Acc: {val_acc:.4f}"
+        )
 
         # Early Stopping
         if val_loss < best_val_loss:
@@ -374,7 +454,9 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(X_sensors, y)):
             epochs_no_improve += 1
 
         if epochs_no_improve >= patience:
-            print(f"⏳ Early Stopping Triggered at Epoch {epoch+1}. Restoring Best Model...")
+            print(
+                f"⏳ Early Stopping Triggered at Epoch {epoch + 1}. Restoring Best Model..."
+            )
             model.load_state_dict(best_model_wts)
             break
 
@@ -385,18 +467,24 @@ for fold, (train_idx, val_idx) in enumerate(kf.split(X_sensors, y)):
 
         with torch.no_grad():
             for sensors, hier, labels in val_loader:
-                sensors, hier, labels = sensors.to(device), hier.to(device), labels.to(device)
+                sensors, hier, labels = (
+                    sensors.to(device),
+                    hier.to(device),
+                    labels.to(device),
+                )
                 outputs = model(sensors, hier)
                 preds = torch.argmax(outputs, dim=1)
                 all_preds.extend(preds.cpu().numpy())
                 all_labels.extend(labels.cpu().numpy())
 
         accuracy = accuracy_score(all_labels, all_preds)
-        precision, recall, f1, _ = precision_recall_fscore_support(all_labels, all_preds, average="weighted")
+        precision, recall, f1, _ = precision_recall_fscore_support(
+            all_labels, all_preds, average="weighted"
+        )
         kappa = cohen_kappa_score(all_labels, all_preds)
         mcc = matthews_corrcoef(all_labels, all_preds)
 
-        print(f"\n=== Fold {fold+1} Results ===")
+        print(f"\n=== Fold {fold + 1} Results ===")
         print(f"✅ Accuracy: {accuracy:.4f}")
         print(f"✅ Precision: {precision:.4f}")
         print(f"✅ Recall: {recall:.4f}")
