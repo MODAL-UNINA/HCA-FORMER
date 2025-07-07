@@ -92,7 +92,7 @@ This project requires the following datasets:
 **Instructions**:
 
 - Both datasets are provided in a zip archive.
-- Unzip the archive and **place the extracted contents into the** `./data/` **folder**.
+- Unzip the archive and **place the extracted contents into the** `./data/` **folder** if the extraction does not do so by default.
 
 
 
